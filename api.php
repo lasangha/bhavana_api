@@ -25,7 +25,7 @@ if(@$_GET['what'] == 'getCauses'){
 		$_GET['ini'] = 0;
 	}
 
-	echo $q = sprintf("SELECT * FROM causes LIMIT %s, %s", $_GET['ini'], $_GET['ini'] + 10);
+	$q = sprintf("SELECT * FROM causes LIMIT %s, %s", $_GET['ini'], $_GET['ini'] + 10);
 
 	$r = dbQuery($q);
 
@@ -37,6 +37,108 @@ if(@$_GET['what'] == 'getCauses'){
 
 }
 
+# A list of meditation times per person
+if(@$_GET['what'] == 'getAllMeditationTimesPerDay'){
+
+	# Where to start?
+	if(!isset($_GET['ini'])){
+		$_GET['ini'] = 0;
+	}
+
+	$q = sprintf("
+		SELECT FROM_UNIXTIME(m.timestamp, '%%Y %%D %%M') AS day, SUM(m.totalTime) AS totalTime
+		FROM meditations m
+		WHERE timestamp > %s
+		GROUP BY day
+		ORDER BY day
+		", (time()-($_GET['ini']*86400)));
+
+	$r = dbQuery($q);
+
+	$labels = array();
+	$times  = array();
+
+	while($row = $r->fetch_object()){
+		$labels[] = $row->day;
+		$times[] = $row->totalTime;
+	} 
+
+	print json_encode(array("labels" => $labels, "times" => $times));
+
+}
+
+# A list of meditation times per person
+if(@$_GET['what'] == 'getMyMeditationTimes'){
+
+	# Where to start?
+	if(!isset($_GET['ini'])){
+		$_GET['ini'] = 0;
+	}
+
+	# Get the details about the user
+	$user = loadUserByEmail($_GET['email']);
+
+	$q = sprintf("
+		SELECT FROM_UNIXTIME(timestamp, '%%Y.%%e.%%m') AS day, SUM(totalTime) AS totalTime
+		FROM meditations
+		WHERE idUser = '%s'
+		AND timestamp > %s
+		GROUP BY day
+		ORDER BY day
+		", $user->idUser, (time()-($_GET['ini']*86400)));
+
+	$r = dbQuery($q);
+
+	$labels = array();
+	$times  = array();
+
+	while($row = $r->fetch_object()){
+		$labels[] = $row->day;
+		$times[] = $row->totalTime;
+	}
+
+	printJson(array("labels" => $labels, "times" => $times));
+
+}
+
+# Generate tmp pswd
+if(@$_GET['what'] == 'recoverPwd'){
+
+	# Get the details about the user
+	$user = loadUserByEmail($_GET['email']);
+
+	# Generate new tmp pwd
+	$tmpPwd = md5(rand() . time() . $user->email);
+
+	# Insert the tmp pwd
+
+	updateUser($user->id, array("pwd" => $tmpPwd));
+
+	$q = sprintf("
+		SELECT FROM_UNIXTIME(timestamp, '%%Y.%%e.%%m') AS day, SUM(totalTime) AS totalTime
+		FROM meditations
+		WHERE idUser = '%s'
+		AND timestamp > %s
+		GROUP BY day
+		ORDER BY day
+		", $user->idUser, (time()-($_GET['ini']*86400)));
+
+	$r = dbQuery($q);
+
+	$labels = array();
+	$times  = array();
+
+	while($row = $r->fetch_object()){
+		$labels[] = $row->day;
+		$times[] = $row->totalTime;
+	} 
+
+	print json_encode(array("labels" => $labels, "times" => $times));
+
+}
+
+
+
 /**
  * Add time to a cause
  * call = what=addToCause&causeCode=paz&totalTime=888&where=here&who=me
@@ -45,7 +147,7 @@ elseif(@$_POST['what'] == 'addToCause'){
 
 	$idCause = 0;
 
-	//Get the correct id of the cause
+	# Get the correct id of the cause
 	$q = sprintf("SELECT idCause FROM causes WHERE code = '%s'", $_POST['causeCode']);
 
 	$r = dbQuery($q);
@@ -54,18 +156,21 @@ elseif(@$_POST['what'] == 'addToCause'){
 		$idCause = $row->idCause;
 	}
 
+	# Get the details about the user
+	$user = loadUserByEmail($_POST['email']);	
+
 	if($idCause > 0){
 		// Register the new time
-		$q = sprintf("INSERT INTO `meditations` (`timestamp`, `totalTime`, `idCause`, `where`, `who`)
-						VALUES ('%s', '%s', '%s', '%s', '%s')",
-						time(),
-						$_POST['totalTime'],
-						$idCause,
-						$_POST['where'],
-						$_POST['who']
-						);
-			$r = dbQuery($q);
-		
+		$q = sprintf("INSERT INTO `meditations` (`timestamp`, `totalTime`, `idCause`, `where`, `idUser`)
+			VALUES ('%s', '%s', '%s', '%s', '%s')",
+				time(),
+				$_POST['totalTime'],
+				$idCause,
+				$user->country,
+				$user->idUser
+			);
+		$r = dbQuery($q);
+
 		// Add up all times
 		$q = sprintf("UPDATE causes SET totalTime = totalTime + %s WHERE idCause = '%s'", $_POST['totalTime'], $idCause);
 		$r = dbQuery($q);
@@ -75,145 +180,202 @@ elseif(@$_POST['what'] == 'addToCause'){
 
 }
 
-# I want to get a list of causes
+/**
+ * Insert users
+ */
+elseif(@$_POST['what'] == 'addUser'){
+
+	if($_POST['pwd'] == "" | !isset($_POST['pwd'])){
+		# I need a password
+		printJson(0);
+	}
+
+	# Does the user exist?
+	$user = loadUserByEmail($_POST['email']);
+
+	if($user->idUser > 0){
+		printJson(0);
+	}
+	else{
+	// Register the new user
+	$q = sprintf("INSERT INTO `users` (`name`, `email`, `timestamp`, `country`, `pwd`)
+		VALUES ('%s', '%s', '%s', '%s', '%s')",
+			$_POST['name'],
+			$_POST['email'],
+			time(),
+			$_POST['country'],
+			md5($_POST['pwd'])
+		);
+
+	$r = dbQuery($q);
+
+	printJson(1);
+	}
+}
+
+/**
+ * Insert users
+ */
+elseif(@$_POST['what'] == 'logUserIn'){
+
+	$user = loadUserByEmail($_POST['email']);
+
+	# User does not exist
+	if($user->idUser == 0){
+		printJson(2);
+	}
+	# All good
+	elseif($user->pwd == md5($_POST['pwd'])){
+		# Remove the pwd, just in case
+		$user->pwd = "";
+		printJson($user);
+	}
+
+	# Wrong pwd
+	else{
+		printJson(0);
+	}
+
+}
+
+
+# Get total meditation times per cause
 if(@$_GET['what'] == 'getCausesTimes'){
 
 	if(!isset($_GET['ini'])){
 		$_GET['ini'] = 0;
 	}
 
-	$q = sprintf("SELECT idCause, name, totalTime FROM causes LIMIT %s, %s", $_GET['ini'], $_GET['ini'] + 10);
+	$where = "";
+	if(!isset($_GET['cause'])){
+		$where = sprintf(" WHERE idCause = '%s'", $_GET['cause']);
+	}
+
+
+	$q = sprintf("SELECT idCause, name, totalTime FROM causes %s LIMIT %s, %s", $where, $_GET['ini'], $_GET['ini'] + 10);
 
 	$r = dbQuery($q);
 
 	while($row = $r->fetch_object()){
 		$allCauses[] = $row;
 	}
-
 	printJson($allCauses);
+
+}
+
+# Cause with maximum meditation
+if(@$_GET['what'] == 'getCausesTimesMax'){
+
+	$q = "SELECT idCause, name, totalTime FROM causes ORDER BY totalTime DESC LIMIT 1";
+
+	$r = dbQuery($q);
+
+	while($row = $r->fetch_object()){
+		$maxCause = $row;
+	}
+
+	printJson($maxCause);
+
+}
+
+# Some function to fix the utf-8 problems
+function _fixUTF($value, $key){
+
+	global $newWhat;
+
+	$newWhat[utf8_encode($key)] = utf8_encode($value);
+
+}
+
+# Some function to fix the utf-8 problems
+function fixUTF($a){
+
+	global $newWhat;
+	foreach($a as $value => $v){
+		echo $value;
+		echo mb_detect_encoding($value);
+		/*if(is_array($v)){
+			echo $value . " is an array";
+			$newWhat[utf8_encode($value)] = fixUTF($value);
+		}
+		else{
+			echo "bien: " . $value;
+			//return utf8_encode($value);
+	}*/
+	}
+	//$newWhat[utf8_encode($key)] = utf8_encode($value);
 
 }
 
 # I will print stuff in json
 function printJson($what){
+
+	global $newWhat;
+
 	header('Content-Type: text/html; charset=utf-8');
 	header('Content-Type: application/json');
-	print drupal_json_encode($what);
-	//print json_last_error_msg();
-}
-# This two functions where borrowed from Drupal, I am having problems with the database encoding, it must be utf-8
-# it is supposed to be, but who knows, the point is that json_encode keeps giving me errors.
-function drupal_json_encode_helper($var) {
-	switch (gettype($var)) {
-	case 'boolean':
-		return $var ? 'true' : 'false'; // Lowercase necessary!
-
-	case 'integer':
-	case 'double':
-		return $var;
-
-	case 'resource':
-	case 'string':
-		// Always use Unicode escape sequences (\u0022) over JSON escape
-		// sequences (\") to prevent browsers interpreting these as
-		// special characters.
-		$replace_pairs = array(
-
-			// ", \ and U+0000 - U+001F must be escaped according to RFC 4627.
-			'\\' => '\u005C',
-			'"' => '\u0022',
-			"\x00" => '\u0000',
-			"\x01" => '\u0001',
-			"\x02" => '\u0002',
-			"\x03" => '\u0003',
-			"\x04" => '\u0004',
-			"\x05" => '\u0005',
-			"\x06" => '\u0006',
-			"\x07" => '\u0007',
-			"\x08" => '\u0008',
-			"\x09" => '\u0009',
-			"\x0a" => '\u000A',
-			"\x0b" => '\u000B',
-			"\x0c" => '\u000C',
-			"\x0d" => '\u000D',
-			"\x0e" => '\u000E',
-			"\x0f" => '\u000F',
-			"\x10" => '\u0010',
-			"\x11" => '\u0011',
-			"\x12" => '\u0012',
-			"\x13" => '\u0013',
-			"\x14" => '\u0014',
-			"\x15" => '\u0015',
-			"\x16" => '\u0016',
-			"\x17" => '\u0017',
-			"\x18" => '\u0018',
-			"\x19" => '\u0019',
-			"\x1a" => '\u001A',
-			"\x1b" => '\u001B',
-			"\x1c" => '\u001C',
-			"\x1d" => '\u001D',
-			"\x1e" => '\u001E',
-			"\x1f" => '\u001F',
-
-			// Prevent browsers from interpreting these as as special.
-			"'" => '\u0027',
-			'<' => '\u003C',
-			'>' => '\u003E',
-			'&' => '\u0026',
-
-			// Prevent browsers from interpreting the solidus as special and
-			// non-compliant JSON parsers from interpreting // as a comment.
-			'/' => '\u002F',
-
-			// While these are allowed unescaped according to ECMA-262, section
-			// 15.12.2, they cause problems in some JSON parsers.
-			"\xe2\x80\xa8" => '\u2028', // U+2028, Line Separator.
-			"\xe2\x80\xa9" => '\u2029', // U+2029, Paragraph Separator.
-		);
-
-		return '"' . strtr($var, $replace_pairs) . '"';
-
-	case 'array':
-		// Arrays in JSON can't be associative. If the array is empty or if it
-		// has sequential whole number keys starting with 0, it's not associative
-		// so we can go ahead and convert it as an array.
-		if (empty($var) || array_keys($var) === range(0, sizeof($var) - 1)) {
-			$output = array();
-			foreach ($var as $v) {
-				$output[] = drupal_json_encode_helper($v);
-			}
-			return '[ ' . implode(', ', $output) . ' ]';
-		}
-		// Otherwise, fall through to convert the array as an object.
-
-	case 'object':
-		$output = array();
-		foreach ($var as $k => $v) {
-			$output[] = drupal_json_encode_helper(strval($k)) . ':' . drupal_json_encode_helper($v);
-		}
-		return '{' . implode(', ', $output) . '}';
-
-	default:
-		return 'null';
-	}
+	print json_encode($what);
+	//echo json_last_error_msg();
+	exit();
 }
 
-function drupal_json_encode($var) {
-	// The PHP version cannot change within a request.
-	static $php530;
+# Load a user by id
+function loadUserById($id){
 
-	if (!isset($php530)) {
-		$php530 = version_compare(PHP_VERSION, '5.3.0', '>=');
+	# Get the correct id of the cause
+	$q = sprintf("SELECT * FROM users WHERE id = '%s' LIMIT 1", $id);
+
+	$r = dbQuery($q);
+
+	while($row = $r->fetch_object()){
+		$user = $row;
 	}
 
-	if ($php530) {
-		echo 11;
-		// Encode <, >, ', &, and " using the json_encode() options parameter.
-		//<F8return json_encode($var, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+	return $user;
+
+}
+
+# Load a user by email
+function loadUserByEmail($email){
+
+	# By default the user does not exist
+	$user = (object) array('idUser' => 0);
+
+	# Get the correct id of the cause
+	$q = sprintf("SELECT * FROM users WHERE email = '%s' LIMIT 1", $email);
+
+	$r = dbQuery($q);
+
+	while($row = $r->fetch_object()){
+		$user = $row;
 	}
 
-	// json_encode() escapes <, >, ', &, and " using its options parameter, but
-	// does not support this parameter prior to PHP 5.3.0.  Use a helper instead.
-	//include_once DRUPAL_ROOT . '/includes/json-encode.inc';
-	return drupal_json_encode_helper($var);
+	return $user;
+
+}
+
+# I update user's details
+function updateUser($userId, $dets = array()){
+
+	$user = loadUserById($userId);
+
+	# Which fields should I modify
+	if(array_key_exists('name', $dets)){
+		$user->name = $dets['name'];
+	}
+
+	if(array_key_exists('pwd', $dets)){
+		$user->pwd = $dets['pwd'];
+	}
+
+	if(array_key_exists('email', $dets)){
+		$user->email = $dets['email'];
+	}
+
+	if(array_key_exists('country', $dets)){
+		$user->country = $dets['country'];
+	}
+
+	$q = sprintf("UPDATE users set");
+
 }

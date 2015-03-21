@@ -7,7 +7,7 @@ function dbConnect(){
 	$servername = "localhost";
 	$username = "root";
 	$password = "123";
-	$dbName = "lasangha_bhavana_1";
+	$dbName = "lasangha_bhavana";
 
 	# Create connection
 	$conn = new mysqli($servername, $username, $password, $dbName);
@@ -17,7 +17,7 @@ function dbConnect(){
 		die("Connection failed: " . $conn->connect_error);
 	}
 	else{
-		//print "Connected";
+		$conn->set_charset("utf8");
 	}
 }
 
