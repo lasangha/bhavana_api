@@ -46,7 +46,7 @@ if(@$_GET['what'] == 'getAllMeditationTimesPerDay'){
 	}
 
 	$q = sprintf("
-		SELECT FROM_UNIXTIME(m.timestamp, '%%Y %%D %%M') AS day, SUM(m.totalTime) AS totalTime
+		SELECT FROM_UNIXTIME(m.timestamp, '%%Y.%%e.%%m') AS day, SUM(m.totalTime) AS totalTime
 		FROM meditations m
 		WHERE timestamp > %s
 		GROUP BY day
@@ -104,6 +104,7 @@ if(@$_GET['what'] == 'getMyMeditationTimes'){
 # Generate tmp pswd
 if(@$_GET['what'] == 'recoverPwd'){
 
+/*
 	# Get the details about the user
 	$user = loadUserByEmail($_GET['email']);
 
@@ -134,7 +135,7 @@ if(@$_GET['what'] == 'recoverPwd'){
 	} 
 
 	print json_encode(array("labels" => $labels, "times" => $times));
-
+*/
 }
 
 
@@ -208,6 +209,8 @@ elseif(@$_POST['what'] == 'addUser'){
 		);
 
 	$r = dbQuery($q);
+
+	sendWelcomeMail($_POST['name'], $_POST['email']);
 
 	printJson(1);
 	}
@@ -377,5 +380,38 @@ function updateUser($userId, $dets = array()){
 	}
 
 	$q = sprintf("UPDATE users set");
+
+}
+
+# send welcome email
+function sendWelcomeMail($name, $email){
+	$theMail = "
+	Hola {name} y bienvenido a Bhavana, su 'Retiro Personal De Meditación'
+
+	Su cuenta ya ha sido creada y está lista para ser utilizada.
+
+	Muchas gracias por tomar este tiempo para mejor su vida y la de todos los seres.
+
+	Recuerde que siempre estamos al alcance si tiene preguntas o requiere ayuda.
+
+	--  La Sangha, Organización Para El Desarrollo y Crecimiento Humano
+	";
+
+	$theMail = str_replace("{name}", $name, $theMail);
+
+	sendMail($email, "Bienvenido a Bhavana, Su retiro personal", $theMail);
+	sendMail("felipeannica@yahoo.com", "Bienvenido a Bhavana, Su retiro personal", $theMail);
+
+}
+
+function sendMail($to, $subject, $msg, $from = "no-reply@lasangha.org", $replyTo = "no-reply@lasangha.org"){
+
+	$headers = 
+			'Content-type: text/plain; charset=utf-8' . "\r\n" .
+			'From: ' . $from . "\r\n" .
+		  'Reply-To: ' . $replyTo . "\r\n" .
+		  'X-Mailer: PHP/' . phpversion();
+
+	mail($to, $subject, $msg, $headers);
 
 }
