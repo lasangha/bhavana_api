@@ -14,6 +14,99 @@ include_once("db.php");
 #
 dbConnect();
 
+/*
+$q = sprintf("
+	SELECT FROM_UNIXTIME(m.timestamp, '%%Y.%%e.%%m') AS day, SUM(m.totalTime) AS totalTime, m.idCause, c.name AS cName, c.code AS cCode
+	FROM meditations m
+	INNER JOIN causes c ON c.idCause = m.idCause
+	WHERE timestamp > 90
+	GROUP BY idCause, day
+	ORDER BY day
+	", time());
+
+$r = dbQuery($q);
+
+$labels = array();
+$times  = array();
+$details = array();
+
+while($row = $r->fetch_object()){
+	$stuff[$row->cCode][] = array("name" => $row->cName, "day" => $row->day, "totalTime" => $row->totalTime);
+	$details[$row->cName]['details'][$row->day] = $row->totalTime;
+	//$details[$row->cCode]['name'] = $row->cName;
+	//$codes[] = $row->cCode;
+	$dates[] = $row->day;
+}
+
+# Remove duplicates
+//$codes = array_unique($codes);
+$dates = array_unique($dates);
+
+# Lets fix the dates
+$nDates = array();
+foreach($dates as $d){
+	$nDates[] = $d;
+}
+
+
+print_r($details);
+# Fix dates to see if there are any missing ones?
+foreach($details as $topic => $d){
+	echo "Working on topic: $topic <br />";
+		foreach($dates as $date){
+			echo "Working on date: $date <br />";
+			if(!array_key_exists($date, $details[$topic]['details'])){
+				echo "Missing that date <br/ >";
+				$details[$topic]['details'][$date] = 0;
+				ksort($details[$topic]['details']);
+				break;
+			}
+		}
+}
+
+# Now, lets get rid of al that is not needed
+#
+$justTheNumbers = array();
+foreach($details as $topic => $d){
+	foreach($dates as $date){
+		$justTheNumbers[$topic][] = $details[$topic]['details'][$date];
+	}
+}
+
+print_r($details);
+print_r($justTheNumbers);
+
+printJson(array('details' => $justTheNumbers, 'dates' => $nDates));
+/*
+foreach($dates as $date){
+	echo "Working on date $date <br />";
+	# Now, lets see if each code has this date
+	foreach($stuff as $s => $ss){
+		echo "Working on topic $s <br/>";
+		//print_r($ss);
+		foreach($ss as $t => $tt){
+			echo "Working on this $t<br/>";
+			print_r($stuff[$s][$t]['name']); echo "<br />";
+			if($tt['day'] == $date){
+				//echo ";bion";
+				echo "I have that date <br/>";
+				//continue;
+				break;
+			}
+			else{
+				//$stuff[$s][] = array("name" => $stuff[$s][$t]['name'], "day" => $date, "totalTime" => 0);
+				echo "I am missing that date: $date on $s and $t <br />";
+				break;
+			}
+
+		}
+	}
+}
+//print_r($dates);
+//print_r($codes);
+exit;
+ */
+
 #
 ## What do you want?
 #
@@ -37,13 +130,74 @@ if(@$_GET['what'] == 'getCauses'){
 
 }
 
-# A list of meditation times per person
+# Total meditation times
 if(@$_GET['what'] == 'getAllMeditationTimesPerDay'){
 
 	# Where to start?
 	if(!isset($_GET['ini'])){
 		$_GET['ini'] = 0;
 	}
+
+	$q = sprintf("
+		SELECT FROM_UNIXTIME(m.timestamp, '%%Y.%%e.%%m') AS day, SUM(m.totalTime) AS totalTime, m.idCause, c.name AS cName, c.code AS cCode
+		FROM meditations m
+		INNER JOIN causes c ON c.idCause = m.idCause
+		WHERE timestamp > 90
+		GROUP BY idCause, day
+		ORDER BY day
+		", (time()-($_GET['ini']*86400)));
+
+	$r = dbQuery($q);
+
+	$stuff = array();
+	$details = array();
+	$dates  = array();
+
+	while($row = $r->fetch_object()){
+		$stuff[$row->cCode][] = array("name" => $row->cName, "day" => $row->day, "totalTime" => $row->totalTime);
+		$details[$row->cName]['details'][$row->day] = $row->totalTime;
+		$dates[] = $row->day;
+	}
+
+	# Remove duplicates
+	$dates = array_unique($dates);
+
+	# Lets fix the dates (remove keys)
+	$nDates = array();
+	foreach($dates as $d){
+		$nDates[] = $d;
+	}
+
+	# Fix dates to see if there are any missing ones?
+	foreach($details as $topic => $d){
+		//echo "Working on topic: $topic <br />";
+		foreach($dates as $date){
+			//echo "Working on date: $date <br />";
+			if(!array_key_exists($date, $details[$topic]['details'])){
+				//echo "Missing that date <br/ >";
+				$details[$topic]['details'][$date] = 0;
+				# Sort them out
+				ksort($details[$topic]['details']);
+				break;
+			}
+		}
+	}
+
+	# Now, lets get rid of al that is not needed
+	$justTheNumbers = array();
+	foreach($details as $topic => $d){
+		foreach($dates as $date){
+			$justTheNumbers[$topic][] = $details[$topic]['details'][$date];
+		}
+	}
+
+	//print_r($details);
+	//print_r($justTheNumbers);
+
+	printJson(array('details' => $justTheNumbers, 'dates' => $nDates));
+
+	/*
+	//SELECT FROM_UNIXTIME(m.timestamp, '%Y.%e.%m') AS day, SUM(m.totalTime) AS totalTime, m.idCause, c.name FROM meditations m INNER JOIN causes c ON c.idCause = m.idCause WHERE timestamp > 90 GROUP BY day, idCause ORDER BY day
 
 	$q = sprintf("
 		SELECT FROM_UNIXTIME(m.timestamp, '%%Y.%%e.%%m') AS day, SUM(m.totalTime) AS totalTime
@@ -64,7 +218,7 @@ if(@$_GET['what'] == 'getAllMeditationTimesPerDay'){
 	} 
 
 	print json_encode(array("labels" => $labels, "times" => $times));
-
+	 */
 }
 
 # A list of meditation times per person
@@ -135,7 +289,7 @@ if(@$_GET['what'] == 'recoverPwd'){
 	} 
 
 	print json_encode(array("labels" => $labels, "times" => $times));
-*/
+ */
 }
 
 
@@ -198,21 +352,21 @@ elseif(@$_POST['what'] == 'addUser'){
 		printJson(0);
 	}
 	else{
-	// Register the new user
-	$q = sprintf("INSERT INTO `users` (`name`, `email`, `timestamp`, `country`, `pwd`)
-		VALUES ('%s', '%s', '%s', '%s', '%s')",
-			$_POST['name'],
-			$_POST['email'],
-			time(),
-			$_POST['country'],
-			md5($_POST['pwd'])
-		);
+		// Register the new user
+		$q = sprintf("INSERT INTO `users` (`name`, `email`, `timestamp`, `country`, `pwd`)
+			VALUES ('%s', '%s', '%s', '%s', '%s')",
+				$_POST['name'],
+				$_POST['email'],
+				time(),
+				$_POST['country'],
+				md5($_POST['pwd'])
+			);
 
-	$r = dbQuery($q);
+		$r = dbQuery($q);
 
-	sendWelcomeMail($_POST['name'], $_POST['email']);
+		sendWelcomeMail($_POST['name'], $_POST['email']);
 
-	printJson(1);
+		printJson(1);
 	}
 }
 
@@ -304,7 +458,7 @@ function fixUTF($a){
 		else{
 			echo "bien: " . $value;
 			//return utf8_encode($value);
-	}*/
+		}*/
 	}
 	//$newWhat[utf8_encode($key)] = utf8_encode($value);
 
@@ -386,16 +540,16 @@ function updateUser($userId, $dets = array()){
 # send welcome email
 function sendWelcomeMail($name, $email){
 	$theMail = "
-	Hola {name} y bienvenido a Bhavana, su 'Retiro Personal De Meditación'
+		Hola {name} y bienvenido a Bhavana, su 'Retiro Personal De Meditación'
 
-	Su cuenta ya ha sido creada y está lista para ser utilizada.
+		Su cuenta ya ha sido creada y está lista para ser utilizada.
 
-	Muchas gracias por tomar este tiempo para mejor su vida y la de todos los seres.
+		Muchas gracias por tomar este tiempo para mejor su vida y la de todos los seres.
 
-	Recuerde que siempre estamos al alcance si tiene preguntas o requiere ayuda.
+		Recuerde que siempre estamos al alcance si tiene preguntas o requiere ayuda.
 
-	--  La Sangha, Organización Para El Desarrollo y Crecimiento Humano
-	";
+		--  La Sangha, Organización Para El Desarrollo y Crecimiento Humano
+		";
 
 	$theMail = str_replace("{name}", $name, $theMail);
 
@@ -407,10 +561,10 @@ function sendWelcomeMail($name, $email){
 function sendMail($to, $subject, $msg, $from = "no-reply@lasangha.org", $replyTo = "no-reply@lasangha.org"){
 
 	$headers = 
-			'Content-type: text/plain; charset=utf-8' . "\r\n" .
-			'From: ' . $from . "\r\n" .
-		  'Reply-To: ' . $replyTo . "\r\n" .
-		  'X-Mailer: PHP/' . phpversion();
+		'Content-type: text/plain; charset=utf-8' . "\r\n" .
+		'From: ' . $from . "\r\n" .
+		'Reply-To: ' . $replyTo . "\r\n" .
+		'X-Mailer: PHP/' . phpversion();
 
 	mail($to, $subject, $msg, $headers);
 
