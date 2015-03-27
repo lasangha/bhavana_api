@@ -6,7 +6,6 @@
 iconv_set_encoding("internal_encoding", "UTF-8");
 iconv_set_encoding("input_encoding", "UTF-8");
 iconv_set_encoding("output_encoding", "UTF-8");
-//var_dump(iconv_get_encoding('all'));
 
 include_once("db.php");
 
@@ -14,98 +13,73 @@ include_once("db.php");
 #
 dbConnect();
 
+function getMeditationLocations(){
+
+	$q = "SELECT coordinates, timestamp
+        FROM meditations
+        WHERE timestamp > " . (time() - 1296000) . " AND coordinates != '' GROUP BY coordinates ORDER BY timestamp DESC LIMIT 0, 60";
+
+    $res = dbQuery($q);
+
+    $dats = array();
+	while($record = $res->fetch_object()){
+	$dats[] = sprintf('
+		{"type":"Feature",
+		"id":"%s",
+		"properties":{"name":"90"},
+		"geometry":{"type":"Point","coordinates":[%s]}}', $record->timestamp, $record->coordinates);
+    }
+
+	$dats = implode(",", $dats);
+    print '{"type":"FeatureCollection","features":['.$dats.']}';
+    exit;
+
+}
+
+// Borrowed from lestatz
+function getMeVisitorDetails($ipAddress = ""){
+
+	// Tmp solution
+	$details = array();
+	$details['latitude'] = rand(-70.0000, 80.0000);
+	$details['longitude'] = rand(-70.0000, 80.0000);
+
+	return $details;
 /*
-$q = sprintf("
-	SELECT FROM_UNIXTIME(m.timestamp, '%%Y.%%e.%%m') AS day, SUM(m.totalTime) AS totalTime, m.idCause, c.name AS cName, c.code AS cCode
-	FROM meditations m
-	INNER JOIN causes c ON c.idCause = m.idCause
-	WHERE timestamp > 90
-	GROUP BY idCause, day
-	ORDER BY day
-	", time());
-
-$r = dbQuery($q);
-
-$labels = array();
-$times  = array();
-$details = array();
-
-while($row = $r->fetch_object()){
-	$stuff[$row->cCode][] = array("name" => $row->cName, "day" => $row->day, "totalTime" => $row->totalTime);
-	$details[$row->cName]['details'][$row->day] = $row->totalTime;
-	//$details[$row->cCode]['name'] = $row->cName;
-	//$codes[] = $row->cCode;
-	$dates[] = $row->day;
-}
-
-# Remove duplicates
-//$codes = array_unique($codes);
-$dates = array_unique($dates);
-
-# Lets fix the dates
-$nDates = array();
-foreach($dates as $d){
-	$nDates[] = $d;
-}
-
-
-print_r($details);
-# Fix dates to see if there are any missing ones?
-foreach($details as $topic => $d){
-	echo "Working on topic: $topic <br />";
-		foreach($dates as $date){
-			echo "Working on date: $date <br />";
-			if(!array_key_exists($date, $details[$topic]['details'])){
-				echo "Missing that date <br/ >";
-				$details[$topic]['details'][$date] = 0;
-				ksort($details[$topic]['details']);
-				break;
-			}
-		}
-}
-
-# Now, lets get rid of al that is not needed
-#
-$justTheNumbers = array();
-foreach($details as $topic => $d){
-	foreach($dates as $date){
-		$justTheNumbers[$topic][] = $details[$topic]['details'][$date];
+	# I will use the address of the current visitor if nothing is provided
+	if($ipAddress == ""){
+		$ipAddress = $_SERVER['REMOTE_ADDR'];
 	}
-}
 
-print_r($details);
-print_r($justTheNumbers);
+	$ipParts = explode(".", $ipAddress);
 
-printJson(array('details' => $justTheNumbers, 'dates' => $nDates));
-/*
-foreach($dates as $date){
-	echo "Working on date $date <br />";
-	# Now, lets see if each code has this date
-	foreach($stuff as $s => $ss){
-		echo "Working on topic $s <br/>";
-		//print_r($ss);
-		foreach($ss as $t => $tt){
-			echo "Working on this $t<br/>";
-			print_r($stuff[$s][$t]['name']); echo "<br />";
-			if($tt['day'] == $date){
-				//echo ";bion";
-				echo "I have that date <br/>";
-				//continue;
-				break;
-			}
-			else{
-				//$stuff[$s][] = array("name" => $stuff[$s][$t]['name'], "day" => $date, "totalTime" => 0);
-				echo "I am missing that date: $date on $s and $t <br />";
-				break;
-			}
+	 $integerIp =   ( 16777216 * $ipParts[0] )
+		+ (    65536 * $ipParts[1] )
+		+ (      256 * $ipParts[2] )
+		+              $ipParts[3];
 
-		}
+	# From  http://dev.maxmind.com/geoip/legacy/geolite/
+	# GeoLite City
+	# GeoLiteCity-Location.csv
+	# GeoLiteCity-Blocks.csv
+	$q = sprintf("
+		SELECT b.locId, l.*
+		FROM blocks b
+		INNER JOIN locations l ON l.locId = b.locId
+		WHERE startIpNum <= %s 
+		AND endIpNum >= %s
+		", $integerIp, $integerIp);
+
+	$r = dbQuery($q);
+
+	while($row = $r->fetch_object()){
+		$details = $row;
 	}
+*/
+	return $details;
+
 }
-//print_r($dates);
-//print_r($codes);
-exit;
- */
+
 
 #
 ## What do you want?
@@ -124,7 +98,7 @@ if(@$_GET['what'] == 'getCauses'){
 
 	while($row = $r->fetch_object()){
 		$allCauses[] = $row;
-	} 
+	}
 	//print_r($allCauses);
 	print json_encode($allCauses);
 
@@ -292,7 +266,9 @@ if(@$_GET['what'] == 'recoverPwd'){
  */
 }
 
-
+elseif(@$_GET['what'] == 'getMeditationLocations'){
+	getMeditationLocations();
+}
 
 /**
  * Add time to a cause
@@ -314,21 +290,32 @@ elseif(@$_POST['what'] == 'addToCause'){
 	# Get the details about the user
 	$user = loadUserByEmail($_POST['email']);	
 
+	# Where is this person?
+	$location = getMeVisitorDetails();
+
 	if($idCause > 0){
 		// Register the new time
-		$q = sprintf("INSERT INTO `meditations` (`timestamp`, `totalTime`, `idCause`, `where`, `idUser`)
+		$q = sprintf("INSERT INTO `meditations` (`timestamp`, `totalTime`, `idCause`, `idUser`, `coordinates`)
 			VALUES ('%s', '%s', '%s', '%s', '%s')",
 				time(),
 				$_POST['totalTime'],
 				$idCause,
-				$user->country,
-				$user->idUser
+				$user->idUser,
+				$location['longitude'] . "," . $location['latitude']
 			);
+
 		$r = dbQuery($q);
 
-		// Add up all times
+		# Update total times
 		$q = sprintf("UPDATE causes SET totalTime = totalTime + %s WHERE idCause = '%s'", $_POST['totalTime'], $idCause);
 		$r = dbQuery($q);
+
+/* wait untill there is an index in that table
+		# Update times in locations
+		$q = sprintf("UPDATE locations SET totalTime = totalTime + %s WHERE locId = '%s'", $_POST['totalTime'], $location['locId']);
+		$r = dbQuery($q);
+*/
+
 	}
 
 	print 1;
@@ -540,15 +527,15 @@ function updateUser($userId, $dets = array()){
 # send welcome email
 function sendWelcomeMail($name, $email){
 	$theMail = "
-		Hola {name} y bienvenido a Bhavana, su 'Retiro Personal De Meditación'
+		Hola {name} y bienvenido a Bhavana, su 'Retiro Personal De Meditaci贸n'
 
-		Su cuenta ya ha sido creada y está lista para ser utilizada.
+		Su cuenta ya ha sido creada y est谩 lista para ser utilizada.
 
 		Muchas gracias por tomar este tiempo para mejor su vida y la de todos los seres.
 
 		Recuerde que siempre estamos al alcance si tiene preguntas o requiere ayuda.
 
-		--  La Sangha, Organización Para El Desarrollo y Crecimiento Humano
+		--  La Sangha, Organizaci贸n Para El Desarrollo y Crecimiento Humano
 		";
 
 	$theMail = str_replace("{name}", $name, $theMail);
@@ -569,3 +556,4 @@ function sendMail($to, $subject, $msg, $from = "no-reply@lasangha.org", $replyTo
 	mail($to, $subject, $msg, $headers);
 
 }
+
